@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\API\BaseController;
 use App\Models\Docter;
+use App\Models\TokenBooking;
 use App\Models\DocterAvailability;
 use App\Models\Favouritestatus;
 use App\Models\LabReport;
@@ -107,9 +108,6 @@ class UserController extends BaseController
         try {
             DB::beginTransaction();
 
-            // Validate input
-
-
             // Check if the user exists
             $user = User::find($userId);
 
@@ -130,28 +128,24 @@ class UserController extends BaseController
             if (!$patient) {
                 return $this->sendResponse(null, null, '3', 'Patient not found.');
             }
-            $patient->firstname = $request->input('firstname') ?? $patient->firstname;
-            $patient->lastname = $request->input('secondname') ?? $patient->lastname;
-            $patient->mobileNo = $request->input('mobileNo') ?? $patient->mobileNo;
-            $patient->email = $request->input('email') ?? $patient->email;
-            $patient->location = $request->input('location') ?? $patient->location;
-            if ($request->has('gender')) {
-                $patient->gender = $request->input('gender') ?? $patient->gender;
-            }
+            $firstname = $request->input('firstname') ?? $patient->firstname;
+            $Secondname = $request->input('secondname') ?? $patient->secondname;
+            $Mobileno = $request->input('mobileNo') ?? $patient->mobileNo;
+            $age = $request->input('age') ?? $patient->age;
+            $gender = $request->input('gender') ?? $patient->gender;
+            $location = $request->input('location') ?? $patient->location;
+
+            $patientData = [
+                'firstname' => $firstname,
+                'secondname' => $Secondname,
+                'age' => $age,
+                'mobileNo' => $Mobileno,
+                'location' => $location,
+                'gender' => $gender,
+            ];
 
 
-            if ($request->hasFile('user_image')) {
-                $imageFile = $request->file('user_image');
-
-                if ($imageFile->isValid()) {
-                    $imageName = $imageFile->getClientOriginalName();
-                    $imageFile->move(public_path('UserImages'), $imageName);
-
-                    $patient->user_image = $imageName;
-                }
-            }
-
-            $patient->save();
+            $patient->update($patientData);
 
             DB::commit();
 
@@ -161,6 +155,66 @@ class UserController extends BaseController
             return $this->sendError($e->getMessage(), $errorMessages = [], $code = 404);
         }
     }
+    public function userimage(Request $request, $userId)
+{
+    try {
+        $patient = Patient::where('UserId', $userId)->where('user_type', 1)->first();
+
+        if (!$patient) {
+            return $this->sendResponse(null, null, '3', 'Patient not found.');
+        }
+
+        if ($request->hasFile('user_image')) {
+            $destination = public_path('UserImages/') . $patient->user_image;
+
+            // Delete existing image if it exists
+            if (File::exists($destination)) {
+                File::delete($destination);
+            }
+
+            $file = $request->file('user_image');
+            $extension = $file->getClientOriginalExtension();
+            $filename = time() . '.' . $extension;
+
+            // Move the uploaded file to the specified directory
+            $file->move(public_path('UserImages'), $filename);
+
+            // Save the filename to the patient's 'user_image' field in the database
+            $patient->user_image = $filename;
+            $patient->save();
+
+            // Send a success response
+            return response()->json(['status' => true, 'response' => 'Image upload successfully']);
+        } else {
+            return $this->sendResponse(null, null, '4', 'No image uploaded.');
+        }
+    } catch (\Exception $e) {
+        return $this->sendError($e->getMessage(), $errorMessages = [], $code = 404);
+    }
+}
+
+
+    public function getUserImage($userId)
+    {
+        try {
+            $patient = Patient::where('UserId', $userId)->where('user_type', 1)->first();
+
+            if (!$patient) {
+                return $this->sendResponse(null, null, '3', 'Patient not found.');
+            }
+
+
+                $assetUrl = asset("UserImages/{$patient->user_image}");
+
+                return $this->sendResponse("UserImage", $assetUrl, '1', 'Image retrieved successfully.');
+
+        } catch (\Exception $e) {
+            return $this->sendError($e->getMessage(), $errorMessages = [], $code = 404);
+        }
+    }
+
+
+
 
     public function UserEdit($userId)
     {
@@ -169,6 +223,10 @@ class UserController extends BaseController
             $response = ['message' => 'User not found with the given UserId'];
             return response()->json($response, 404);
         }
+
+        $userDetails->UserProfile = asset("UserImages/{$userDetails->user_image}");
+
+
         return $this->sendResponse('Userdetails', $userDetails, '1', 'User retrieved successfully.');
     }
 
@@ -238,11 +296,12 @@ class UserController extends BaseController
     }
 
 
+
     private function getClinics($doctorId)
     {
         // Replace this with your actual logic to retrieve clinic details from the database
         // You may use Eloquent queries or another method based on your application structure
-        $clinics = DocterAvailability::where('docter_id', $doctorId)->get(['id', 'hospital_Name', 'availability']);
+        $clinics = DocterAvailability::where('docter_id', $doctorId)->get(['id', 'hospital_Name', 'startingTime', 'endingTime', 'address', 'location']);
 
         return $clinics;
     }
@@ -269,6 +328,7 @@ class UserController extends BaseController
                 ->where('patient.UserId', $doctor->UserId)
                 ->orderByRaw('CAST(token_booking.TokenNumber AS SIGNED) ASC')
                 ->where('Is_completed', 1)
+                ->distinct()
                 ->get(['token_booking.*', 'docter.*']);
 
             // Initialize an array to store appointments along with doctor details
@@ -358,8 +418,8 @@ class UserController extends BaseController
     {
         $rules = [
             'user_id'     => 'required',
-            'document'    => 'required|mimes:doc,docx,pdf,jpeg,png,jpg|max:2048',
-            'patient_id'  => 'required',
+            'document'    => 'required|mimes:doc,docx,pdf,jpeg,png,jpg',
+
         ];
         $messages = [
             'document.required' => 'Document is required',
@@ -503,15 +563,33 @@ class UserController extends BaseController
             return response()->json(['status' => false, 'response' => $validation->errors()->first()]);
         }
         try {
-            $patient_doc = PatientDocument::select('id', 'user_id', 'status', 'created_at', DB::raw("CONCAT('" . asset('user/documents') . "', '/', document) AS document_path"))->where('user_id', $request->user_id)->where('patient_id', $request->patient_id);
+            $patient_doc = PatientDocument::select('id', 'user_id', 'status', 'patient_id', 'type', 'created_at', 'updated_at', DB::raw("CONCAT('" . asset('user/documents') . "', '/', document) AS document_path"))
+                ->where('user_id', $request->user_id)
+                ->where('patient_id', $request->patient_id);
 
             if ($request->type) {
                 $patient_doc = $patient_doc->where('type', $request->type);
+                if ($request->type == 2) {
+                    $patient_doc = $patient_doc->with(['PatientPrescription:id,document_id,date,doctor_name'])->get();
+                }
+                if ($request->type == 1) {
+                    $patient_doc = $patient_doc->with(['LabReport:id,document_id,date,test_name'])->get();
+                }
             }
-            $patient_doc = $patient_doc->get();
-            if (!$patient_doc) {
+            foreach ($patient_doc as $patient_docment) {
+                $today = Carbon::now();
+                $patient_detail = Patient::where('id', $request->patient_id)->first();
+                // Format the date
+                $formattedDate = $today->format('Y/m/d');
+                $patient_docment->hours_ago = 0;
+                $patient_docment->date = $formattedDate;
+                $patient_docment->patient = $patient_detail->firstname;
+            }
+
+            if ($patient_doc->isEmpty()) {
                 $patient_doc = null;
             }
+
             return response()->json(['status' => true, 'document_data' => $patient_doc]);
         } catch (\Exception $e) {
             return response()->json(['status' => false, 'response' => "Internal Server Error"]);
@@ -586,10 +664,9 @@ class UserController extends BaseController
         $rules = [
             'user_id'     => 'required',
             'first_name'  => 'required',
-            'last_name'   => 'required',
             'gender'      => 'required|in:1,2,3',
             'relation'    => 'required|in:1,2,3',
-            'email'       => 'required|email'
+            'age' => 'required'
         ];
         $messages = [
             'user_id.required' => 'UserId is required',
@@ -599,9 +676,9 @@ class UserController extends BaseController
             return response()->json(['status' => false, 'response' => $validation->errors()->first()]);
         }
         try {
-            if($request->relation == '1'){
-                $patient_detail = Patient::where('user_type',1)->first();
-                if($patient_detail){
+            if ($request->relation == '1') {
+                $patient_detail = Patient::where('user_type', 1)->first();
+                if ($patient_detail) {
                     return response()->json(['status' => false, 'response' => "A profile is already in self"]);
                 }
             }
@@ -619,6 +696,7 @@ class UserController extends BaseController
             $patient->firstname = $request->first_name;
             $patient->lastname = $request->last_name;
             $patient->gender    = $request->gender;
+            $patient->age    = $request->age;
             $patient->user_type = $request->relation;
             $patient->email     = $request->email;
             $patient->UserId    = $request->user_id;
@@ -628,6 +706,7 @@ class UserController extends BaseController
             return response()->json(['status' => false, 'response' => "Internal Server Error"]);
         }
     }
+
 
     public function manageAddress(Request $request)
     {
@@ -701,7 +780,7 @@ class UserController extends BaseController
             return response()->json(['status' => false, 'response' => $validation->errors()->first()]);
         }
         try {
-            $patients = Patient::select('id','firstname','lastname','mobileNo','gender','email')->where('UserId',$request->user_id)->get();
+            $patients = Patient::select('id', 'firstname', 'mobileNo', 'gender', 'email', 'age')->where('UserId', $request->user_id)->get();
 
             return response()->json(['status' => true, 'patients_data' => $patients]);
         } catch (\Exception $e) {
@@ -728,6 +807,163 @@ class UserController extends BaseController
                 $history = null;
             }
             return response()->json(['status' => true, 'history_data' => $history]);
+        } catch (\Exception $e) {
+            return response()->json(['status' => false, 'response' => "Internal Server Error"]);
+        }
+    }
+    public function editPatient(Request $request, $patientId)
+    {
+        try {
+            $patient = Patient::find($patientId);
+
+            if (!$patient) {
+                return response()->json(['status' => false, 'response' => 'Patient not found']);
+            }
+
+            // You can customize the fields you want to include in the response
+            $patientData = [
+                'id'        => $patient->id,
+                'firstname' => $patient->firstname,
+                'gender'    => $patient->gender,
+                'age'       => $patient->age,
+            ];
+
+            return response()->json(['status' => true, 'patient_data' => $patientData]);
+        } catch (\Exception $e) {
+            return response()->json(['status' => false, 'response' => 'Internal Server Error']);
+        }
+    }
+
+    public function updatePatient(Request $request, $patientId)
+    {
+
+
+        try {
+            // Find the patient by ID
+            $patient = Patient::find($patientId);
+
+            if (!$patient) {
+                return response()->json(['status' => false, 'response' => 'Patient not found']);
+            }
+
+            // Update patient information
+            $patient->update([
+                'firstname' => $request->input('firstname') ?? $patient->firstname,
+                'gender'    => $request->input('gender') ?? $patient->gender,
+                'age'       => $request->input('age') ?? $patient->age,
+            ]);
+
+            return response()->json(['status' => true, 'response' => 'Patient updated successfully']);
+        } catch (\Exception $e) {
+            return response()->json(['status' => false, 'response' => "Internal Server Error"]);
+        }
+    }
+
+    public function DeleteMemeber($patientId)
+    {
+        $Patient = Patient::find($patientId);
+
+        if (is_null($Patient)) {
+            return $this->sendError('Patient not found.');
+        }
+
+        $Patient->delete();
+        return $this->sendResponse("Patient", $Patient, '1', 'Member Deleted successfully');
+    }
+
+
+    public function recentlyBookedDoctor(Request $request)
+    {
+        try {
+            $authenticatedUserId = auth()->user()->id;
+            $specializeArray['specialize'] = Specialize::all();
+            $specificationArray['specification'] = Specification::all();
+            $subspecificationArray['subspecification'] = Subspecification::all();
+
+            // Retrieve the recently booked doctor details
+            $recentBooking = TokenBooking::select('id', 'doctor_id', 'date', 'TokenTime')
+                ->where('BookedPerson_id', $authenticatedUserId)
+                ->latest('date')
+                ->get();
+
+            if ($recentBooking->isEmpty()) {
+                return response()->json(['status' => true, 'doctor_data' => null, 'message' => 'No recent bookings found']);
+            }
+
+            $doctersWithSpecifications = [];
+
+            foreach ($recentBooking as $booking) {
+                $doctorId = $booking->doctor_id;
+
+                $docters = Docter::join('docteravaliblity', 'docter.id', '=', 'docteravaliblity.docter_id')
+                    ->select('docter.UserId', 'docter.id', 'docter.docter_image', 'docter.firstname', 'docter.lastname', 'docter.specialization_id', 'docter.subspecification_id', 'docter.specification_id', 'docter.about', 'docter.location', 'docteravaliblity.id as avaliblityId', 'docter.gender', 'docter.email', 'docter.mobileNo', 'docter.Services_at', 'docteravaliblity.hospital_Name', 'docteravaliblity.startingTime', 'docteravaliblity.endingTime', 'docteravaliblity.address', 'docteravaliblity.location')
+                    ->where('UserId', $doctorId)
+                    ->get();
+
+                foreach ($docters as $doctor) {
+                    $id = $doctor['id'];
+
+                    // Check if the doctor's user ID is in the "add_favorite" table for the authenticated user
+                    $favoriteStatus = DB::table('addfavourite')
+                        ->where('UserId', $authenticatedUserId)
+                        ->where('doctor_id', $doctor['UserId'])
+                        ->exists();
+
+                    if (!isset($doctersWithSpecifications[$id])) {
+                        $specialize = $specializeArray['specialize']->firstWhere('id', $doctor['specialization_id']);
+
+                        $doctersWithSpecifications[$id] = [
+                            'id' => $id,
+                            'UserId' => $doctor['UserId'],
+                            'firstname' => $doctor['firstname'],
+                            'secondname' => $doctor['lastname'],
+                            'Specialization' => $specialize ? $specialize['specialization'] : null,
+                            'DocterImage' => asset("DocterImages/images/{$doctor['docter_image']}"),
+                            'About' => $doctor['about'],
+                            'Location' => $doctor['location'],
+                            'Gender' => $doctor['gender'],
+                            'emailID' => $doctor['email'],
+                            'Mobile Number' => $doctor['mobileNo'],
+                            'MainHospital' => $doctor['Services_at'],
+                            'subspecification_id' => $doctor['subspecification_id'],
+                            'specification_id' => $doctor['specification_id'],
+                            'specifications' => [],
+                            'subspecifications' => [],
+                            'clincs' => [],
+                            'favoriteStatus' => $favoriteStatus ? 1 : 0, // Add favorite status
+                        ];
+                    }
+
+                    $specificationIds = array_unique(explode(',', $doctor['specification_id']));
+                    $subspecificationIds = array_unique(explode(',', $doctor['subspecification_id']));
+
+
+                    $doctersWithSpecifications[$id]['specifications'] = array_merge(
+                        $doctersWithSpecifications[$id]['specifications'],
+                        array_map(function ($id) use ($specificationArray) {
+                            return $specificationArray['specification']->firstWhere('id', $id)['specification'];
+                        }, $specificationIds)
+                    );
+
+                    $doctersWithSpecifications[$id]['subspecifications'] = array_merge(
+                        $doctersWithSpecifications[$id]['subspecifications'],
+                        array_map(function ($id) use ($subspecificationArray) {
+                            return $subspecificationArray['subspecification']->firstWhere('id', $id)['subspecification'];
+                        }, $subspecificationIds)
+                    );
+
+                    $doctersWithSpecifications[$id]['clincs'][] = [
+                        'id'  => $doctor['avaliblityId'],
+                        'name' => $doctor['hospital_Name'],
+                        'StartingTime' => $doctor['startingTime'],
+                        'EndingTime' => $doctor['endingTime'],
+                        'Address' => $doctor['address'],
+                        'Location' => $doctor['location'],
+                    ];
+                }
+            }
+            $formattedOutput = array_values($doctersWithSpecifications);
+            return response()->json(['status' => true, 'doctor_data' => $formattedOutput, 'message' => 'Success']);
         } catch (\Exception $e) {
             return response()->json(['status' => false, 'response' => "Internal Server Error"]);
         }

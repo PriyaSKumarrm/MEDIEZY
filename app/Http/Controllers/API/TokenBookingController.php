@@ -41,8 +41,8 @@ class TokenBookingController extends BaseController
                 'doctor_id' => 'required',
                 'Appoinmentfor1' => 'required|array',
                 'Appoinmentfor2' => 'required|array',
-                'clinic_id'=> 'required',
-                'Bookingtype'=> 'sometimes|in:1,2,3' //1 for self,2 for familymember ,3 for others
+                'clinic_id' => 'required',
+                'Bookingtype' => 'sometimes|in:1,2,3' //1 for self,2 for familymember ,3 for others
             ]);
 
             $isDoctor = $request->has('doctor_id');
@@ -96,7 +96,7 @@ class TokenBookingController extends BaseController
                 $patientId = DB::table('patient')->insertGetId([
                     'firstname' => $request->input('PatientName'),
                     'mobileNo' => $request->input('MobileNo'),
-                    'user_type'=>$request->input('Bookingtype'),
+                    'user_type' => $request->input('Bookingtype'),
                     'UserId' => $userId,
                 ]);
             }
@@ -113,6 +113,7 @@ class TokenBookingController extends BaseController
                     'date' => $request->input('date'),
                     'TokenNumber' => $request->input('TokenNumber'),
                     'TokenTime' => $request->input('TokenTime'),
+                    'EndTokenTime' => $request->input('EndTokenTime'),
                     'doctor_id' => $request->input('doctor_id'),
                     'whenitstart' => $request->input('whenitstart'),
                     'whenitcomes' => $request->input('whenitcomes'),
@@ -145,12 +146,12 @@ class TokenBookingController extends BaseController
     {
         // Replace this with your actual logic to retrieve clinic details from the database
         // You may use Eloquent queries or another method based on your application structure
-        $clinics = DocterAvailability::where('docter_id', $doctorId)->get(['id', 'hospital_Name', 'startingTime','endingTime','address','location']);
+        $clinics = DocterAvailability::where('docter_id', $doctorId)->get(['id', 'hospital_Name', 'startingTime', 'endingTime', 'address', 'location']);
 
         return $clinics;
     }
 
-    public function GetallAppointmentOfDocter($userId, $date)//datewise where completed is 0
+    public function GetallAppointmentOfDocter($userId, $date, $clinicId) //datewise where completed is 0
     {
         try {
             // Get the currently authenticated doctor
@@ -164,11 +165,12 @@ class TokenBookingController extends BaseController
 
             // Get all appointments for the doctor on the selected date
             $appointments = Docter::join('token_booking', 'token_booking.doctor_id', '=', 'docter.UserId')
-            ->where('docter.UserId', $doctor->UserId)
-            ->whereDate('token_booking.date', $date)
-            ->orderByRaw('CAST(token_booking.TokenNumber AS SIGNED) ASC')
-            ->where('Is_completed',0)
-            ->get(['token_booking.*']);
+                ->where('token_booking.clinic_id', $clinicId)
+                ->where('docter.UserId', $doctor->UserId)
+                ->whereDate('token_booking.date', $date)
+                ->orderByRaw('CAST(token_booking.TokenNumber AS SIGNED) ASC')
+                ->where('Is_completed', 0)
+                ->get(['token_booking.*']);
 
 
             // Initialize an array to store appointments along with doctor details
@@ -180,7 +182,7 @@ class TokenBookingController extends BaseController
 
                 // Extract appointment details
                 $appointmentDetails = [
-                    'id'=>$appointment->id,
+                    'id' => $appointment->id,
                     'TokenNumber' => $appointment->TokenNumber,
                     'Date' => $appointment->date,
                     'Startingtime' => $appointment->TokenTime,
@@ -226,7 +228,7 @@ class TokenBookingController extends BaseController
 
 
 
-    public function GetallAppointmentOfDocterCompleted($userId, $date)//datewise where completed is 1
+    public function GetallAppointmentOfDocterCompleted($userId, $date, $clinicId) //datewise where completed is 1
     {
         try {
             // Get the currently authenticated doctor
@@ -240,11 +242,12 @@ class TokenBookingController extends BaseController
 
             // Get all appointments for the doctor on the selected date
             $appointments = Docter::join('token_booking', 'token_booking.doctor_id', '=', 'docter.UserId')
-            ->where('docter.UserId', $doctor->UserId)
-            ->whereDate('token_booking.date', $date)
-            ->orderByRaw('CAST(token_booking.TokenNumber AS SIGNED) ASC')
-            ->where('Is_completed',1)
-            ->get(['token_booking.*']);
+                ->where('token_booking.clinic_id', $clinicId)
+                ->where('docter.UserId', $doctor->UserId)
+                ->whereDate('token_booking.date', $date)
+                ->orderByRaw('CAST(token_booking.TokenNumber AS SIGNED) ASC')
+                ->where('Is_completed', 1)
+                ->get(['token_booking.*']);
 
 
             // Initialize an array to store appointments along with doctor details
@@ -256,11 +259,12 @@ class TokenBookingController extends BaseController
 
                 // Extract appointment details
                 $appointmentDetails = [
-                    'id'=>$appointment->id,
+                    'id' => $appointment->id,
                     'TokenNumber' => $appointment->TokenNumber,
                     'Date' => $appointment->date,
                     'Startingtime' => $appointment->TokenTime,
                     'PatientName' => $appointment->PatientName,
+                    'Age' => $appointment->age,
                     'main_symptoms' => Symtoms::select('id', 'symtoms')->whereIn('id', $symptoms['Appoinmentfor1'])->get()->toArray(),
                     'other_symptoms' => Symtoms::select('id', 'symtoms')->whereIn('id', $symptoms['Appoinmentfor2'])->get()->toArray(),
                 ];
@@ -300,34 +304,48 @@ class TokenBookingController extends BaseController
     }
 
 
+
     public function appointmentDetails(Request $request)
     {
         $rules = [
-            'token_id'   => 'required',
+            'token_id' => 'required',
         ];
+
         $messages = [
             'token_id.required' => 'Token is required',
         ];
+
         $validation = Validator::make($request->all(), $rules, $messages);
+
         if ($validation->fails()) {
             return response()->json(['status' => false, 'response' => $validation->errors()->first()]);
         }
-       try {
-            $tokenId = $request->token_id;
-            $booking = TokenBooking::select('id', 'date', 'TokenTime', 'Appoinmentfor_id', 'whenitstart', 'whenitcomes', 'attachment', 'notes')->where('id', $tokenId)->first();
-            if (!$booking) {
-                return response()->json(['status' => false, 'response' => "Booking not found"]);
-            }
-            $symptoms = json_decode($booking->Appoinmentfor_id, true);
-            $mainSymptoms = Symtoms::select('id', 'symtoms')->whereIn('id', $symptoms['Appoinmentfor1'])->get()->toArray();
-            $otherSymptoms = Symtoms::select('id', 'symtoms')->whereIn('id', $symptoms['Appoinmentfor2'])->get()->toArray();
-            $booking['main_symptoms'] = array_merge($mainSymptoms, $otherSymptoms);
-            $booking['medicine']       = Medicine::where('token_id', $tokenId)->get();
-            return response()->json(['status' => true, 'booking_data' => $booking, 'message' => 'Success']);
-        } catch (\Exception $e) {
-            return response()->json(['status' => false, 'response' => "Internal Server Error"]);
+
+
+        $tokenId = $request->token_id;
+        $booking = TokenBooking::select('id', 'TokenNumber','BookedPerson_id', 'PatientName', 'age', 'date', 'TokenTime', 'Appoinmentfor_id', 'whenitstart', 'whenitcomes', 'attachment', 'notes')
+            ->where('id', $tokenId)
+            ->whereDate('date', now()->toDateString())
+            ->first();
+
+        if (!$booking) {
+            return response()->json(['status' => false, 'response' => "Booking not found"]);
         }
+        $bookedPersonId = $booking->BookedPerson_id;
+
+        // Assuming there is a column named 'user_id' in the 'patients' table
+        $patientUserId = Patient::where('UserId', $bookedPersonId)->value('id');
+
+        $symptoms = json_decode($booking->Appoinmentfor_id, true);
+        $mainSymptoms = Symtoms::select('id', 'symtoms')->whereIn('id', $symptoms['Appoinmentfor1'])->get()->toArray();
+        $otherSymptoms = Symtoms::select('id', 'symtoms')->whereIn('id', $symptoms['Appoinmentfor2'])->get()->toArray();
+        $booking['main_symptoms'] = array_merge($mainSymptoms, $otherSymptoms);
+        $booking['medicine'] = Medicine::where('token_id', $tokenId)->get();
+        $booking['PatientId'] = $patientUserId;
+
+        return response()->json(['status' => true, 'booking_data' => $booking, 'message' => 'Success']);
     }
+
 
     public function addPrescription(Request $request)
     {

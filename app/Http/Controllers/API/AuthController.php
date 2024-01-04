@@ -44,7 +44,7 @@ class AuthController extends BaseController
         ->first();
 
         $hospital=User::where('email', $req->email)
-        ->where('user_role', 6) // 5 represents medical shop
+        ->where('user_role', 6) // 5 represents hospital
         ->first();
     // if user email found and password is correct
     if ($user && Hash::check($req->password, $user->password)) {

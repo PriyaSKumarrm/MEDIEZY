@@ -95,6 +95,9 @@ Route::post('/register', [RegisterController::class, 'register']);
 Route::post('/Userregister', [UserController::class, 'UserRegister']);
 Route::get('/Useredit/{userId}', [UserController::class, 'UserEdit']);
 Route::put('/Userupdate/{userId}', [UserController::class, 'updateUserDetails']);
+Route::post('/UserDP/{userId}', [UserController::class, 'userimage']);
+
+Route::get('/UserDP/{userId}', [UserController::class, 'getUserImage']);
 //  Login
 Route::post('/login', [LoginController::class, 'login']);
 Route::post('/generate-cards', [TokenGenerationController::class, 'generateTokenCards']);
@@ -107,8 +110,8 @@ Route::post('/approveorreject', [DocterController::class, 'ApproveOrReject']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/TokenBooking', [TokenBookingController::class, 'bookToken']);
-Route::get('/getallappointments/{userId}/{date}', [TokenBookingController::class, 'GetallAppointmentOfDocter']);
-Route::get('/getallcompletedappointments/{userId}/{date}', [TokenBookingController::class, 'GetallAppointmentOfDocterCompleted']);
+Route::get('/getallappointments/{userId}/{date}/{clinicid}', [TokenBookingController::class, 'GetallAppointmentOfDocter']);
+Route::get('/getallcompletedappointments/{userId}/{date}/{clinicid}', [TokenBookingController::class, 'GetallAppointmentOfDocterCompleted']);
 
 Route::group(['prefix' => 'user'], function () {
     Route::any('/get_docter_tokens', [DocterController::class, 'getTokens']);
@@ -124,6 +127,7 @@ Route::group(['prefix' => 'user'], function () {
     Route::post('/manage_address',[UserController::class,'manageAddress']);
     Route::post('/get_address',[UserController::class,'getUserAddresses']);
     Route::post('/get_patients',[UserController::class,'getPatients']);
+    Route::get('/recentlyBookedDoctor',[UserController::class,'recentlyBookedDoctor']);
 });
 
 //code for add_prescription
@@ -135,11 +139,12 @@ Route::group(['prefix' => 'docter'], function () {
     Route::post('/leave_update',[DocterController::class,'leaveUpdate']);
     Route::post('/leaves',[DocterController::class,'getDoctorLeaveList']);
     Route::post('/check_pincode_available',[DocterController::class,'checkPincodeAvailable']);
+    Route::post('/get_booked_patients',[DocterController::class,'getBookedPatients']);
 });
 
 Route::group(['prefix' => 'Tokens'], function () {
     Route::post('/getTokendetails', [GetTokenController::class, 'getTokensForCheckInAndComplete']);
-    Route::get('/getcurrentTokens', [GetTokenController::class, 'getCurrentDateTokens']);
+    Route::post('/getcurrentTokens', [GetTokenController::class, 'getCurrentDateTokens']);
 });
 Route::get('/user/userAppoinments/{userId}',[AppoinmentsController::class,'GetUserAppointments']);
 
@@ -183,6 +188,8 @@ Route::group(['prefix' => 'medicalshop'], function () {
     Route::post('/Register', [HospitalController::class, 'HospitalRegister']);
 
 });
-
+Route::get('/patientsedit/{patientId}', [UserController::class, 'editPatient']);
+Route::put('/patientupdate/{patientId}',[UserController::class, 'updatePatient']);
+Route::delete('/DeleteMemeber/{patientId}', [UserController::class, 'DeleteMemeber']);
 
 
